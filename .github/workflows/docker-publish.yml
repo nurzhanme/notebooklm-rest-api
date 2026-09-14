@@ -1,0 +1,173 @@
+
+Claude finished the response
+Fetched: GitHub - prachaya-orr/notebooklm-rest-api-fork: A REST API wrapper for Google NotebookLM powered by notebooklm-py
+Форк действительно добавляет то, что вам нужно: .dockerignore, .gitignore, Dockerfile и docker-compose.yml. Всего 8 коммитов против 6 в оригинале, то есть отличие именно в докер-обвесе. Посмотрю, что там внутри — README не обновляли, он по-прежнему показывает старый пример со slim.
+
+Searched the web
+Форк я посмотрел — он действительно добавляет Dockerfile, docker-compose.yml, .dockerignore и .gitignore. Использовать можно, но два момента я бы поправил перед запуском на VPS.
+
+Что там внутри. Dockerfile — это python:3.12-slim плюс curl, копируется только app.py, добавлен HEALTHCHECK на /health. Compose монтирует целиком ~/.notebooklm с хоста в /root/.notebooklm на чтение-запись, чтобы библиотека могла обновлять куки. Логика та же, что мы обсуждали, только профиль целиком, а не один json.
+
+Проблема первая: порт открыт наружу. В compose стоит "8000:8000" — на VPS это значит, что API доступен из интернета всем. При этом ключ подставляется как ${NOTEBOOKLM_REST_API_KEY:-}, то есть по умолчанию пустой. Получается дверь без замка к вашему гугл-аккаунту. Меняйте на:
+
+yaml
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      NOTEBOOKLM_REST_API_KEY: ${NOTEBOOKLM_REST_API_KEY:?задайте ключ}
+Проблема вторая: браузер. В requirements.txt есть playwright>=1.50.0, но в Dockerfile нигде не вызывается playwright install — Chromium в образ не попадает. Возможно, при работе через готовые куки браузер и не нужен (автор явно рассчитывал на логин на хосте), но если увидите ошибку вида «Executable doesn't exist», добавьте в Dockerfile после установки зависимостей:
+
+dockerfile
+RUN playwright install --with-deps chromium
+Либо просто возьмите базовый образ Playwright из моего варианта — тогда этот вопрос закрыт заранее.
+
+Про доверие к форку. У него ноль звёзд и один автор, а код получает доступ к вашим гугл-кукам. Diff там маленький, минут на пять чтения — я бы глянул app.py на предмет отличий от оригинала перед запуском.
+
+Разумный компромисс: клонируйте форк ради готового обвеса, но замените Dockerfile на вариант с Playwright и поправьте две строки в compose.
+
+давай сделаем тогда форк сами из оригинальной репы
+
+Thought for 7s
+Хорошая идея — так вы контролируете и код, и обвес. План: форк на GitHub, добавляете четыре файла, пушите.
+
+Обновлю файлы с учётом того, что мы нашли в чужом форке.
+
+Ran 3 commands, read a file
+Готово. В DEPLOY.md весь путь — от нажатия Fork до работающего контейнера.
+
+Что изменилось после разбора чужого форка:
+
+Монтируется профиль ~/.notebooklm целиком, а не один storage_state.json. В версии 0.8.x там лежит больше, чем куки, и библиотеке нужна запись, чтобы их обновлять.
+Осталась база Playwright — это закрывает дыру с отсутствующим Chromium.
+Ключ API теперь обязателен: :? в compose не даст контейнеру стартовать с пустым значением.
+Добавлен .gitignore, чтобы data/ и .env не уехали в ваш публичный форк.
+Отдельно обратите внимание на git remote add upstream из первого шага — автор оригинала иногда коммитит, и так вы сможете подтягивать его правки, не теряя свой докер-обвес.
+
+Не забудьте перед первым пушем прогнать git status --ignored и убедиться, что data/ действительно исключён.
+
+
+Deploy
+Document·MD 
+
+Dockerfile
+ 
+
+Compose
+YAML 
+
+.env
+EXAMPLE 
+
+.dockerignore
+DOCKERIGNORE 
+
+.gitignore
+GITIGNORE 
+я могу пушить образ в гитхаб чтобы потом развернуть у себя в vps
+
+Thought for 3s
+Да — это GitHub Container Registry (ghcr.io), и для вашего случая он удобнее сборки на VPS: слабый сервер не будет тратить минуты и память на компиляцию, а просто скачает готовый образ.
+
+Соберу workflow, который будет пушить образ автоматически при каждом коммите.
+
+Ran 2 commands, read a file
+Три файла: workflow (кладётся в .github/workflows/), prod-версия compose с image вместо build, и REGISTRY.md с полным разбором.
+
+Коротко о схеме: пушите код → Actions собирает → образ в ghcr.io → на VPS docker compose pull. Сервер перестаёт быть стройплощадкой и становится просто исполнителем.
+
+Три момента, на которых обычно спотыкаются:
+
+Имя образа только строчными буквами. ghcr.io/Ivan/repo не пройдёт, нужно ghcr.io/ivan/repo.
+Новый пакет создаётся приватным. Либо переключаете на Public в настройках пакета, либо делаете docker login ghcr.io на VPS с токеном, у которого есть read:packages.
+Строка packages: write в workflow обязательна, иначе пуш упадёт с 403.
+Секретов в образе нет — .dockerignore отсекает data/ и .env. Но если решите делать пакет публичным, проверьте это до первой сборки: слой, уехавший в реестр, обратно не отзовёшь.
+
+
+Registry
+Document·MD 
+
+Docker publish
+YML 
+
+Compose.prod
+YAML 
+публикация образа будет бесплатной? если репа открытая
+
+Searched the web
+Да, при публичном репозитории и публичном пакете — бесплатно, и по обеим статьям сразу.
+
+Хранение и трафик. Использование GitHub Packages бесплатно для публичных пакетов, а входящий трафик из любого источника не тарифицируется вовсе. Квоты и лимиты (те самые 500 МБ / 1 ГБ на Free-плане) относятся только к приватным пакетам. Ваш образ с Playwright потянет примерно на 1.5–2 ГБ — для приватного это была бы проблема, для публичного нет.
+
+Минуты сборки. Для публичных репозиториев минуты Actions остаются бесплатными, так что workflow не расходует лимит. 
+GitHub
+
+Отдельно стоит знать: хранение и пропускная способность образов в Container registry сейчас бесплатны в принципе, и о любом изменении этой политики GitHub обещает предупредить минимум за месяц. То есть даже приватный вариант пока не тарифицируется — но это временная льгота, а бесплатность публичных пакетов постоянная.
+
+Практический вывод: делайте пакет публичным. Помимо нулевой стоимости это избавляет от docker login на VPS.
+
+Единственное — ровно поэтому стоит ещё раз проверить, что в образ не попало лишнего. Публичный образ скачает кто угодно, а удалённый слой может остаться в зеркалах и кешах. Перед тем как переключать видимость:
+
+bash
+docker run --rm ghcr.io/ваш_логин/notebooklm-rest-api:latest \
+  sh -c "ls -la /app /data 2>&1"
+Если внутри только app.py и пустая /data — всё чисто.
+
+
+
+
+
+
+Claude is AI and can make mistakes. Please double-check cited sources.
+Docker publish · YML
+name: Build and push image
+ 
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+ 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+ 
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # без этого пуш в ghcr упадёт с 403
+ 
+    steps:
+      - uses: actions/checkout@v4
+ 
+      - uses: docker/setup-buildx-action@v3
+ 
+      - name: Login to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          # GITHUB_TOKEN выдаётся автоматически, свой PAT заводить не нужно
+          password: ${{ secrets.GITHUB_TOKEN }}
+ 
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=tag
+            type=sha,format=short
+ 
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+ 
