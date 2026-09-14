@@ -3,7 +3,7 @@
 # ghcr.io не принимает заглавные в имени образа).
 services:
   notebooklm:
-    image: ghcr.io/ваш_логин/notebooklm-rest-api:latest
+    image: ghcr.io/nurzhanme/notebooklm-rest-api:latest
     container_name: notebooklm-rest-api
     ports:
       - "127.0.0.1:8000:8000"
