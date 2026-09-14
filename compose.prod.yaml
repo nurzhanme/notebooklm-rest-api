@@ -1,0 +1,20 @@
+# Вариант для VPS: готовый образ вместо сборки на месте.
+# Замените ВАШ_ЛОГИН/ВАШ_РЕПО (обязательно строчными буквами —
+# ghcr.io не принимает заглавные в имени образа).
+services:
+  notebooklm:
+    image: ghcr.io/ваш_логин/notebooklm-rest-api:latest
+    container_name: notebooklm-rest-api
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./data/.notebooklm:/data/.notebooklm
+    environment:
+      NOTEBOOKLM_REST_API_KEY: ${NOTEBOOKLM_REST_API_KEY:?задайте ключ в .env}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/docs')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
